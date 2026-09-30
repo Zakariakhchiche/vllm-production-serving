@@ -1,0 +1,81 @@
+# Réplique vLLM sur GPU. Un Deployment par modèle ; KEDA ajuste le nombre de répliques.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: hf-cache}
+spec:
+  accessModes: [ReadWriteMany]            # partagé : les nouvelles répliques ne retéléchargent pas les poids
+  resources: {requests: {storage: 200Gi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-assistant-7b
+  labels: {app: vllm, model: assistant-7b}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: vllm, model: assistant-7b}}
+  strategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 0, maxSurge: 1}}
+  template:
+    metadata:
+      labels: {app: vllm, model: assistant-7b}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8000"}
+    spec:
+      terminationGracePeriodSeconds: 120  # laisse finir les générations en cours
+      nodeSelector: {nvidia.com/gpu.product: NVIDIA-L40S}
+      tolerations: [{key: nvidia.com/gpu, operator: Exists, effect: NoSchedule}]
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.30.0   # à épingler sur la version validée par le banc de charge
+          args:
+            - --model=Qwen/Qwen2.5-7B-Instruct
+            - --served-model-name=assistant-7b
+            - --gpu-memory-utilization=0.90
+            - --max-model-len=8192
+            - --max-num-seqs=64
+            - --enable-prefix-caching
+            - --enable-chunked-prefill
+          env:
+            - name: VLLM_API_KEY
+              valueFrom: {secretKeyRef: {name: vllm-secrets, key: api-key}}
+            - name: HF_TOKEN
+              valueFrom: {secretKeyRef: {name: vllm-secrets, key: hf-token, optional: true}}
+          ports: [{name: http, containerPort: 8000}]
+          resources:
+            limits: {nvidia.com/gpu: "1", memory: 64Gi}
+            requests: {nvidia.com/gpu: "1", cpu: "8", memory: 48Gi}
+          startupProbe:                    # chargement des poids : jusqu'à 20 min sans être tué
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+            failureThreshold: 120
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 15
+            failureThreshold: 4
+          lifecycle:
+            preStop: {exec: {command: ["sleep", "20"]}}   # sortie du load balancer avant l'arrêt
+          volumeMounts:
+            - {name: hf-cache, mountPath: /root/.cache/huggingface}
+            - {name: shm, mountPath: /dev/shm}
+      volumes:
+        - name: hf-cache
+          persistentVolumeClaim: {claimName: hf-cache}
+        - name: shm
+          emptyDir: {medium: Memory, sizeLimit: 16Gi}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: vllm-assistant-7b, labels: {app: vllm}}
+spec:
+  clusterIP: None                          # headless : le routeur voit chaque réplique
+  selector: {app: vllm, model: assistant-7b}
+  ports: [{name: http, port: 8000, targetPort: http}]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: vllm-assistant-7b}
+spec:
+  minAvailable: 1
+  selector: {matchLabels: {app: vllm, model: assistant-7b}}

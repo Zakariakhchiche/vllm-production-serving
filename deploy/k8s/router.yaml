@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: vllm-router}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: vllm-router}}
+  template:
+    metadata: {labels: {app: vllm-router}}
+    spec:
+      containers:
+        - name: router
+          image: ghcr.io/zakariakhchiche/vllm-router:0.1.0
+          env:
+            # Liste statique pour la démo ; en production, découvrir les pods du Service headless.
+            - {name: BACKENDS, value: "http://vllm-assistant-7b-0.vllm-assistant-7b:8000"}
+            - {name: MAX_WAITING, value: "8"}
+          ports: [{containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /health, port: 8080}}
+          resources: {requests: {cpu: 500m, memory: 256Mi}, limits: {memory: 512Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: vllm-router}
+spec:
+  selector: {app: vllm-router}
+  ports: [{port: 80, targetPort: 8080}]

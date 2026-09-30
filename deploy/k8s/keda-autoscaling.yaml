@@ -1,0 +1,27 @@
+# Autoscaling sur la file d'attente vLLM, pas sur le CPU (inutile pour un serveur GPU).
+# Prérequis : KEDA et Prometheus installés dans le cluster.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata: {name: vllm-assistant-7b}
+spec:
+  scaleTargetRef: {name: vllm-assistant-7b}
+  minReplicaCount: 1
+  maxReplicaCount: 6
+  pollingInterval: 15
+  cooldownPeriod: 600                      # un GPU se libère lentement : éviter le yo-yo
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp: {stabilizationWindowSeconds: 60, policies: [{type: Pods, value: 1, periodSeconds: 120}]}
+        scaleDown: {stabilizationWindowSeconds: 900, policies: [{type: Pods, value: 1, periodSeconds: 600}]}
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-operated.monitoring:9090
+        query: sum(vllm:num_requests_waiting{model_name="assistant-7b"})
+        threshold: "5"                     # > 5 requêtes en attente par réplique : on ajoute un GPU
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-operated.monitoring:9090
+        query: avg(vllm:kv_cache_usage_perc{model_name="assistant-7b"}) * 100
+        threshold: "85"
