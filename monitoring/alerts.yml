@@ -1,0 +1,35 @@
+# Alertes orientées SLO : on alerte sur ce que l'utilisateur ressent, pas sur le CPU.
+groups:
+  - name: vllm-slo
+    rules:
+      - alert: VLLMTimeToFirstTokenHigh
+        expr: histogram_quantile(0.95, sum by (le, model_name) (rate(vllm:time_to_first_token_seconds_bucket[5m]))) > 2
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "TTFT p95 > 2 s sur {{ $labels.model_name }}"
+          runbook: "Vérifier la file d'attente et le cache KV ; ajouter une réplique ou réduire max_num_seqs."
+      - alert: VLLMInterTokenLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le, model_name) (rate(vllm:inter_token_latency_seconds_bucket[5m]))) > 0.1
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: "ITL p95 > 100 ms : génération saccadée sur {{ $labels.model_name }}"
+      - alert: VLLMQueueBuildingUp
+        expr: sum by (model_name) (vllm:num_requests_waiting) > 20
+        for: 3m
+        labels: {severity: page}
+        annotations:
+          summary: "Plus de 20 requêtes en attente : capacité insuffisante"
+      - alert: VLLMKVCacheSaturated
+        expr: max by (instance) (vllm:kv_cache_usage_perc) > 0.95
+        for: 5m
+        labels: {severity: ticket}
+        annotations:
+          summary: "Cache KV > 95 % sur {{ $labels.instance }} : préemptions probables"
+      - alert: VLLMInstanceDown
+        expr: up{job="vllm"} == 0
+        for: 2m
+        labels: {severity: page}
+        annotations:
+          summary: "Réplique vLLM injoignable : {{ $labels.instance }}"
