@@ -1,0 +1,58 @@
+# Pile locale sur une machine GPU : 2 répliques vLLM + routeur + Prometheus + Grafana.
+# Prérequis : pilote NVIDIA + nvidia-container-toolkit. Épinglez VLLM_IMAGE sur une version testée.
+x-vllm: &vllm
+  image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.30.0}
+  ipc: host                                  # mémoire partagée nécessaire au tensor parallel
+  environment:
+    HF_TOKEN: ${HF_TOKEN:-}
+    VLLM_API_KEY: ${VLLM_API_KEY:?definir VLLM_API_KEY}   # lu directement par vLLM : la clé n'apparaît pas dans la ligne de commande
+  volumes:
+    - hf-cache:/root/.cache/huggingface      # les poids ne sont téléchargés qu'une fois
+  healthcheck:
+    test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+    interval: 15s
+    start_period: 600s                       # chargement des poids + compilation des graphes CUDA
+  restart: unless-stopped
+
+services:
+  vllm-0:
+    <<: *vllm
+    command: >
+      --model Qwen/Qwen2.5-7B-Instruct --served-model-name assistant-7b
+      --gpu-memory-utilization 0.90 --max-model-len 8192 --max-num-seqs 64
+      --enable-prefix-caching --enable-chunked-prefill
+    deploy:
+      resources:
+        reservations:
+          devices: [{driver: nvidia, device_ids: ["0"], capabilities: [gpu]}]
+  vllm-1:
+    <<: *vllm
+    command: >
+      --model Qwen/Qwen2.5-7B-Instruct --served-model-name assistant-7b
+      --gpu-memory-utilization 0.90 --max-model-len 8192 --max-num-seqs 64
+      --enable-prefix-caching --enable-chunked-prefill
+    deploy:
+      resources:
+        reservations:
+          devices: [{driver: nvidia, device_ids: ["1"], capabilities: [gpu]}]
+  router:
+    build: {context: .., dockerfile: router/Dockerfile}
+    environment:
+      BACKENDS: http://vllm-0:8000,http://vllm-1:8000
+      MAX_WAITING: "8"
+    ports: ["8080:8080"]
+    depends_on: [vllm-0, vllm-1]
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    volumes:
+      - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+    ports: ["9090:9090"]
+  grafana:
+    image: grafana/grafana:11.3.0
+    volumes:
+      - ../monitoring/grafana:/var/lib/grafana/dashboards:ro
+    ports: ["3000:3000"]
+
+volumes:
+  hf-cache:
