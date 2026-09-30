@@ -1,0 +1,18 @@
+# Raisonnement avancé : un 70B quantifié AWQ réparti sur 2 A100 80 Go.
+model: hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4
+served_name: reasoning-70b
+hardware:
+  gpu: NVIDIA A100 80GB
+  gpu_mem_gib: 79.2
+  num_gpus: 2
+serving:
+  port: 8000
+  tensor_parallel_size: 2
+  gpu_memory_utilization: 0.92
+  max_model_len: 16384
+  max_num_seqs: 32
+  quantization: awq
+  kv_cache_dtype: fp8    # divise par 2 la mémoire du cache KV
+  enable_prefix_caching: true
+  enable_chunked_prefill: true
+  api_key_env: VLLM_API_KEY

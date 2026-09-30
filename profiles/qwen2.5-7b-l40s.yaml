@@ -1,0 +1,18 @@
+# Assistant interne à fort trafic : un modèle 7B sur une carte 48 Go.
+model: Qwen/Qwen2.5-7B-Instruct
+served_name: assistant-7b
+hardware:
+  gpu: NVIDIA L40S
+  gpu_mem_gib: 44.4      # 48 Go annoncés = 44.4 GiB utilisables
+  num_gpus: 1
+serving:
+  port: 8000
+  tensor_parallel_size: 1
+  gpu_memory_utilization: 0.90
+  max_model_len: 8192
+  max_num_seqs: 64
+  quantization: null     # bf16
+  kv_cache_dtype: auto
+  enable_prefix_caching: true
+  enable_chunked_prefill: true
+  api_key_env: VLLM_API_KEY
