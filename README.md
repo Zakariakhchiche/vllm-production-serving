@@ -131,3 +131,7 @@ Les tests s'appuient sur un faux serveur vLLM (`tests/fake_vllm.py`) qui reprodu
 
 ---
 Zakaria Khchiche · Tech Lead Data & IA · [Malt](https://www.malt.fr/profile/zakariakhchiche) · [LinkedIn](https://www.linkedin.com/in/zakariakhchiche)
+
+---
+
+🎓 Formation : je forme aussi les équipes avec Spar-x (organisme certifié Qualiopi, finançable OPCO) : [Formation Copilot Studio](https://zakariakhchiche.github.io/formation-copilot-studio/) · [Formation IA générative](https://zakariakhchiche.github.io/formation-ia-generative/) · [Kit AI Act article 4](https://zakariakhchiche.github.io/kit-ai-act/)
